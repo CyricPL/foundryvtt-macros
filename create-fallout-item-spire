@@ -1,0 +1,37 @@
+new Dialog({
+  title: "Create Fallout Item",
+  content: `
+    <form>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" rows="5"></textarea>
+      </div>
+    </form>
+  `,
+  buttons: {
+    create: {
+      label: "Create",
+      callback: async (html) => {
+        const name = html.find('[name="name"]').val().trim() || "New Fallout";
+        const description = html.find('[name="description"]').val().trim();
+
+        await Item.create({
+          name,
+          type: "fallout",
+          folder: "Ac0Zlnf5qoQt1btK",
+          system: {
+            description: description
+          }
+        });
+      }
+    },
+    cancel: {
+      label: "Cancel"
+    }
+  },
+  default: "create"
+}).render(true);
