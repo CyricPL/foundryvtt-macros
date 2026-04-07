@@ -1,0 +1,50 @@
+const name = await new Promise((resolve) => {
+  new Dialog({
+    title: "New Scene",
+    content: `<form><div class="form-group"><label>Scene Name</label><input type="text" name="name" autofocus></div></form>`,
+    buttons: {
+      ok: {
+        icon: '<i class="fas fa-check"></i>',
+        label: "Next",
+        callback: (html) => resolve(html.find('[name="name"]').val())
+      },
+      cancel: {
+        icon: '<i class="fas fa-times"></i>',
+        label: "Cancel",
+        callback: () => resolve(null)
+      }
+    },
+    default: "ok",
+    close: () => resolve(null)
+  }).render(true);
+});
+
+if (!name) return;
+
+const imgPath = await new Promise((resolve) => {
+  new FilePicker({
+    type: "image",
+    callback: (path) => resolve(path)
+  }).render(true);
+});
+
+if (!imgPath) return;
+
+const tex = await loadTexture(imgPath);
+const width = tex.baseTexture?.width ?? tex.width;
+const height = tex.baseTexture?.height ?? tex.height;
+
+const scene = await Scene.create({
+  name: name,
+  background: { src: imgPath },
+  width: width,
+  height: height,
+  padding: 0,
+  backgroundColor: "#000000",
+  grid: { type: CONST.GRID_TYPES.GRIDLESS, size: 150 },
+  tokenVision: false
+});
+
+await scene.activate();
+
+ui.notifications.info(`Scene "${name}" created and activated (${width}×${height}).`);
