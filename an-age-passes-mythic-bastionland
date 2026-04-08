@@ -1,6 +1,7 @@
 // An Age Passes — Mythic Bastionland macro for Foundry VTT V13
 //
 // Displays a dialog listing all Knight actors with multi-select checkboxes.
+//
 // On confirm:
 //
 // 1. Restore: Set all Virtue values to their max for every selected knight.
