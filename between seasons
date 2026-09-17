@@ -1,0 +1,158 @@
+// Between Seasons — Mythic Bastionland macro for Foundry VTT V14
+//
+// Automatically restores all Virtue values to max for every Knight actor
+// (excluding the Deceased folder), rolls d66 Between Season Events for
+// player-linked knights, and posts a chat card with results.
+
+(async () => {
+  // --- d66 Between Season Events table ---
+  const SEASON_EVENTS = {
+    11: "An old Knight offers you their longsword (2d8) if you pledge to train their grandchild as a squire.",
+    12: "A random Seer of the Realm is dying and summoned to you to ask them one last question.",
+    13: "You become ill, roll an ailment.",
+    14: "You are assigned an important role at a wedding.",
+    15: "The ruler of a nearby holding has openly spoken ill of you.",
+    16: "While camping, one of your weapons, shields, or pieces of armour was stolen.",
+    21: "A messenger from a distant realm brings news, with a loose connection to you.",
+    22: "Your steed suddenly dies.",
+    23: "Local farmers provide you with sustenance.",
+    24: "A merchant from a neighbouring realm provides you with stimulant.",
+    25: "A band of pilgrims offer you sacrament.",
+    26: "Somebody close to you becomes ill, roll an ailment.",
+    31: "You learn of a new Landmark in the Realm. Roll and place it randomly.",
+    32: "You witness a ghost from your past.",
+    33: "You meet a travelling party. Roll SPI. If you pass, they write a complimentary song about you, granting 1 Glory. If you fail they mock you, losing 1 Glory until you prove them wrong.",
+    34: "You meet a new successor, potentially more promising than your own if you have one.",
+    35: "You meet a potential romantic partner. Pass a SPI Save to see if the affection is mutual.",
+    36: "You indirectly cause a great fire, wiping out a hex of forest or other greenery.",
+    41: "A visiting Knight wishes to duel you.",
+    42: "You discover a raiding party from a neighbouring Realm.",
+    43: "You stumbled upon a wild beast. It gave you a Scar (d12) before leaving you for dead. Any Virtue loss caused by this is still active at the start of the next Season.",
+    44: "A wandering Seer from a distant Realm offers you cryptic guidance.",
+    45: "You learn the location of a legendarily powerful longsword (3d8 hefty), but it's in the most inconvenient place.",
+    46: "You encounter a Knight sworn to an enemy Realm, but they're pleading for sanctuary and passage to the Seat of Power.",
+    51: "You are called to adjudicate between a truthful but vindictive ruler and a dishonest but desperate vassal.",
+    52: "You learn of a secret Drama in court.",
+    53: "A Seer personally calls you for a Task.",
+    54: "You are at the centre of a new Conflict between two holdings.",
+    55: "You witness a Wonder in a hex near to your most significant holding.",
+    56: "You dream of an Otherworld.",
+    61: "You are accused of a crime you did not commit.",
+    62: "You are swept up within a peoples' revolt in the Realm.",
+    63: "You find a band of artisans from a distant Realm. You escort them to set up shop in a holding.",
+    64: "You offended a strange hermit and they swore a curse upon you. Seers predict grave things for you.",
+    65: "You are with a random ruler as they die suddenly.",
+    66: "A ruler abandons their holding, calling you to aid in establishing a new ruler."
+  };
+
+  // --- Ensure "Deceased" folder exists in the Actor directory ---
+  let deceasedFolder = game.folders.find(f => f.type === "Actor" && f.name === "Deceased");
+  if (!deceasedFolder) {
+    deceasedFolder = await Folder.create({ name: "Deceased", type: "Actor" });
+  }
+
+  // Gather all knights, excluding those in the Deceased folder
+  const knights = game.actors.filter(a => a.type === "knight" && a.folder?.id !== deceasedFolder.id);
+
+  if (!knights.length) {
+    ui.notifications.warn("No Knights found in the world.");
+    return;
+  }
+
+  // Determine which knights are player characters
+  const playerCharacterIds = new Set(
+    game.users.filter(u => !u.isGM && u.character).map(u => u.character.id)
+  );
+
+  const VIRTUES = ["vigour", "clarity", "spirit"];
+
+  // --- Restore all Virtues to max ---
+  for (const knight of knights) {
+    const v = knight.system.virtues;
+    const restoreData = {};
+    for (const virtue of VIRTUES) {
+      if (v[virtue].value !== v[virtue].max) {
+        restoreData[`system.virtues.${virtue}.value`] = v[virtue].max;
+      }
+    }
+    if (Object.keys(restoreData).length) {
+      await knight.update(restoreData);
+    }
+  }
+
+  // --- Roll d66 events for player-linked knights ---
+  // d66: roll two d6, one as tens, one as ones
+  const eventResults = []; // { actor, d66, eventText }
+
+  for (const knight of knights) {
+    if (!playerCharacterIds.has(knight.id)) continue;
+
+    const tens = await new Roll("1d6").evaluate();
+    const ones = await new Roll("1d6").evaluate();
+    const d66 = tens.total * 10 + ones.total;
+    const eventText = SEASON_EVENTS[d66] ?? "Nothing of note occurs.";
+
+    eventResults.push({
+      actor: knight,
+      d66,
+      eventText
+    });
+  }
+
+  // --- Build Chat Card ---
+  // Helper: format knight name with title
+  const knightLabel = (actor) => {
+    const title = actor.system.knight?.trim();
+    return title ? `${actor.name}, ${title},` : `${actor.name}`;
+  };
+
+  // Build event entries for player knights
+  let eventEntries = "";
+  if (eventResults.length) {
+    eventEntries += `<hr style="border: none; border-top: 1px solid #c0b8a8; margin: 0.75em 0;">`;
+    eventEntries += `<p style="text-align: center; font-weight: bold; font-size: 1em; margin-bottom: 0.5em;">Between Season Events</p>`;
+    for (const r of eventResults) {
+      eventEntries += `<p><strong>${knightLabel(r.actor)}</strong> rolled <strong>${r.d66}</strong>:</p>`;
+      eventEntries += `<p style="margin-left: 0.75em; font-style: italic;">${r.eventText}</p>`;
+    }
+  }
+
+  const chatContent = `
+    <div class="mythicbastionland" style="
+      border: 2px solid #8a7a6b;
+      border-radius: 4px;
+      overflow: hidden;
+      font-family: inherit;
+    ">
+      <div style="
+        background: linear-gradient(to bottom, #6b5a6b, #5a4a5a);
+        color: #fff;
+        text-align: center;
+        padding: 6px 10px;
+        font-size: 1.1em;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+      ">Between Seasons</div>
+      <div style="
+        background: #f5f0eb;
+        color: #1a1a1a;
+        padding: 10px 12px;
+        font-size: 0.95em;
+        line-height: 1.5;
+      ">
+        <p>Virtues restored. All knights choose one:</p>
+        <ul style="list-style: disc; padding-left: 1.5em; margin: 0.25em 0 0;">
+          <li><strong>Pilgrimage:</strong> Learn about an unknown part of the Realm.</li>
+          <li><strong>Courtesy:</strong> Establish a new contact or earn a favour.</li>
+          <li><strong>Service:</strong> Make a small improvement to the Realm.</li>
+        </ul>
+        ${eventEntries}
+      </div>
+    </div>
+  `;
+
+  await ChatMessage.create({ content: chatContent });
+
+  // Log full results for downstream logic
+  console.log("Between Seasons — Event Results:", eventResults);
+})();
