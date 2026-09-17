@@ -1,29 +1,116 @@
-// An Age Passes — Mythic Bastionland macro for Foundry VTT V13
+// An Age Passes — Mythic Bastionland macro for Foundry VTT V14
 //
-// Displays a dialog listing all Knight actors with multi-select checkboxes.
-//
-// On confirm:
-//
-// 1. Restore: Set all Virtue values to their max for every selected knight.
-//
-// 2. Age: Each selected knight ages one step (Young → Mature → Old).
-//    Virtue re-rolls (1d12+1d6 per Virtue):
-//      Young → Mature: keep the roll if higher than current.
-//      Mature → Old:   keep the roll if lower than current.
-//      Both value and max are updated together.
-//
-// 3. Already Old knights (no age change):
-//    Lose 1d12 from Vigour (both value and max, clamped to 0).
-//    Flagged as diedOfOldAge if Vigour reaches 0.
+// 1. Dialog: Lists all Knight actors grouped by folder, with checkboxes.
+//    Knights in the Deceased folder are excluded.
+// 2. Restore: Set all Virtue values to their max.
+// 3. Glory: Increase Glory by 1 for all selected knights.
+// 4. Age: Each knight ages one step (Young → Mature → Old).
+//    Virtue re-rolls (1d12+1d6): keep higher (Young→Mature), keep lower (Mature→Old).
+//    Already Old: lose 1d12 Vigour (clamped to 0). Die if Vigour reaches 0.
+// 5. d66 rolls:
+//    - Between Ages table for each player character knight.
+//    - How Did They Die table for each knight that dies of old age.
+// 6. Chat card:
+//    - PC knights: full age/virtue output + Between Ages event.
+//    - NPC knights: only listed if they died of old age.
+//    - All dead knights get a How Did They Die result.
+// 7. Deceased knights moved to the Deceased folder.
 
 (async () => {
-  // --- Ensure "Deceased" folder exists in the Actor directory ---
+  // --- d66 Between Ages Events table ---
+  const BETWEEN_AGES = {
+    11: "You suffered a great failure and must re-pledge your Oath in order to retain your Knighthood.",
+    12: "You have been in a nearby Realm on diplomatic duty. Roll a Spirit Save. On a pass, you are now well-esteemed there. On a fail you triggered a war with them.",
+    13: "You have become deathly ill. You know that you will die before the next Age without supernatural intervention.",
+    14: "You saved the life of a Seer, so they owe you a favour.",
+    15: "You have been named as heir to a Seat of Power.",
+    16: "You gain an especially loyal pet.",
+    21: "The most important non-player character to you dies suddenly. You are with them in their last moments.",
+    22: "You have spent years trapped in an Otherworld.",
+    23: "You brokered peace with raiders from beyond your borders, who have set up a Holding of their own in the Realm.",
+    24: "You won a great battle. Choose its location and roll a Vigour Save. On a pass you won, placing a Monument there. Otherwise you lost, placing a Curse there.",
+    25: "A distant or estranged relative has come to the Realm, finding a place in court.",
+    26: "An enemy or rival from your past has found a place in court.",
+    31: "You inherit a piece of armour (your choice) belonging to a Knight-Radiant, who has left to find the city. Old knights hold you in high regard when you wear it.",
+    32: "Roll a Clarity Save. On a pass you helped depose an unjust ruler, who seeks petty revenge against you. On a fail you unwittingly helped to make them a ruler.",
+    33: "A defeated foe has placed a sizeable bounty on your head.",
+    34: "You received prophetic dreams of a new Myth in the realm. The dreams relate to its final Omen.",
+    35: "You helped a new Seer find their sanctuary. Place it anywhere you wish.",
+    36: "A random visiting Knight gifts you their steed before they leave.",
+    41: 'Justifiable or not, the vassals have taken to calling you "The Wicked"',
+    42: 'Justifiable or not, the vassals have taken to calling you "The Great"',
+    43: "You are offered a new Knightly title. Roll a new Knight type and decide if you wish to exchange your gear and ability for the new one.",
+    44: "As a diplomatic gesture you have been barred from visiting the Seat of Power.",
+    45: "You fight in a battle that sees the destruction of a random holding. Decide which side you were on.",
+    46: "You set up a modest home for yourself that has grown into a dwelling. Place it wherever you choose.",
+    51: "Illness plagues those close to you. Choose three non-player characters close to you. They must each pass a Vigour Save or die.",
+    52: "A ghost from a previous encounter still haunts you. You cannot sleep alone.",
+    53: "You have been exiled from the Realm. If you stay you are doing so under a false identity.",
+    54: "You were sent to fight against a nearby Realm, earning a bloody reputation amongst its loyal Knights. They swore to come for you one day.",
+    55: "You helped a young protegee become a full Knight. Roll their Knight type at random, and they are now roaming the Realm on their own quest.",
+    56: "Time has been cruel to you. If you are Mature, immediately age to Old. If you are Old, lose d6 Vigour to a minimum of 2.",
+    61: "Time has been good to you. If you would age to Old, remain as Mature instead. If you would age to Mature you may increase any one Virtue by d6 to a maximum of 18.",
+    62: "You earn a reputation in tournaments. Gain d6 Maximum Guard to a maximum of 18.",
+    63: "You were embroiled in a blood feud with a ruler of the Realm. Decide somebody close to you who died in the conflict, and also somebody close to them.",
+    64: "A particularly harrowing battle leaves you with little appetite for combat. Lose d6 Maximum Guard to a minimum of 1.",
+    65: "Another Knight bearing your title has entered the Realm, seeking to usurp your position.",
+    66: "A holding unexpectedly fell into your rule."
+  };
+
+  // --- d66 How Did They Die table ---
+  const HOW_DIED = {
+    11: "The life was coughed out of their rattling lungs.",
+    12: "Their body wasted away to bone and shadow.",
+    13: "Gnawed on too much numbing bark for their pain.",
+    14: "Strangled in wrath with little fight.",
+    15: "Fell from a height and scattered their innards.",
+    16: "Faded with their appetite, withered beside a full plate.",
+    21: "Sank in a mire and not wholly found.",
+    22: "Left to bleed on the roadside.",
+    23: "A malady in their last meal turned their belly to rot.",
+    24: "Trampled beneath horses.",
+    25: "Spat out their blood in the night.",
+    26: "Perished in weak murmurs, none heard or came.",
+    31: "Burned in a fire brought by a neighbour.",
+    32: "Torn apart by maddened hounds.",
+    33: "Swollen to bursting by the old plagues' return.",
+    34: "Smote by lightning atop a hill.",
+    35: "Rode out with trembling hands, never found.",
+    36: "Their mind was hot with raving till their soul slipped free.",
+    41: "Slipped on the ground and cracked their skull.",
+    42: "Lost their words, then their breath.",
+    43: "Half-woke at dawn, still in their dream, dead by nightfall.",
+    44: "Their body left clenched and contorted from wicked grain.",
+    45: "Bitten by invisible mites, dying puffed and sputtering.",
+    46: "Fell in a field, unable to drag themselves back.",
+    51: "Wandered too far and grew cold, dying beneath their blanket.",
+    52: "Found sitting stiff, watching the sky.",
+    53: "Hollowed out by belly worms and left pale.",
+    54: "Rendered silent by sun sickness.",
+    55: "Bitten by a coughing wind, which spread deep.",
+    56: "Dreamt too deeply, never to wake.",
+    61: "Split open in a petty feud.",
+    62: "Fed false herbs by will or chance, cold and blue.",
+    63: "Hacked down by uncaring raiders.",
+    64: "Choked on a bone at their evening meal.",
+    65: "Screamed out their last breaths in the night.",
+    66: "Drank deep of cursed water, leaving a yellowed corpse."
+  };
+
+  // --- Helper: roll d66 ---
+  async function rollD66() {
+    const tens = await new Roll("1d6").evaluate();
+    const ones = await new Roll("1d6").evaluate();
+    return { total: tens.total * 10 + ones.total, tens: tens.total, ones: ones.total };
+  }
+
+  // --- Ensure "Deceased" folder exists ---
   let deceasedFolder = game.folders.find(f => f.type === "Actor" && f.name === "Deceased");
   if (!deceasedFolder) {
     deceasedFolder = await Folder.create({ name: "Deceased", type: "Actor" });
   }
 
-  // Gather all actors of type "knight", excluding those already in the Deceased folder
+  // Gather all knights, excluding those in the Deceased folder
   const knights = game.actors.filter(a => a.type === "knight" && a.folder?.id !== deceasedFolder.id);
 
   if (!knights.length) {
@@ -31,29 +118,79 @@
     return;
   }
 
-  // Build the checkbox list HTML
-  const checkboxes = knights
-    .map(k => {
+  // Determine which knights are player characters
+  const playerCharacterIds = new Set(
+    game.users.filter(u => !u.isGM && u.character).map(u => u.character.id)
+  );
+
+  // --- Build dialog with folder grouping ---
+  // Group knights by folder (null folder = "Ungrouped")
+  const folderGroups = new Map();
+  for (const k of knights) {
+    const folderName = k.folder?.name ?? "Ungrouped";
+    const folderId = k.folder?.id ?? "_ungrouped";
+    if (!folderGroups.has(folderId)) {
+      folderGroups.set(folderId, { name: folderName, knights: [] });
+    }
+    folderGroups.get(folderId).knights.push(k);
+  }
+
+  // Sort groups: named folders alphabetically, "Ungrouped" last
+  const sortedGroups = [...folderGroups.entries()].sort((a, b) => {
+    if (a[0] === "_ungrouped") return 1;
+    if (b[0] === "_ungrouped") return -1;
+    return a[1].name.localeCompare(b[1].name);
+  });
+
+  let checkboxHtml = "";
+  for (const [folderId, group] of sortedGroups) {
+    checkboxHtml += `
+      <div style="margin-bottom: 8px;">
+        <div style="
+          font-weight: bold;
+          font-size: 13px;
+          padding: 4px 8px;
+          background: rgba(255,255,255,0.05);
+          border-radius: 3px;
+          margin-bottom: 4px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        ">
+          <i class="fa-solid fa-folder" style="opacity: 0.6;"></i>
+          ${group.name}
+        </div>`;
+    for (const k of group.knights) {
       const img = k.img || "icons/svg/mystery-man.svg";
-      return `
-      <label class="age-knight-entry" style="
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 8px;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: background 0.15s;
-      " onmouseover="this.style.background='rgba(255,255,255,0.05)'"
-        onmouseout="this.style.background='transparent'">
-        <input type="checkbox" name="knights" value="${k.id}"
-          style="width: 16px; height: 16px; cursor: pointer;" />
-        <img src="${img}" alt="${k.name}"
-          style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid #555; object-fit: cover;" />
-        <span style="font-size: 14px;">${k.name}</span>
-      </label>`;
-    })
-    .join("");
+      const isPC = playerCharacterIds.has(k.id);
+      const pcBadge = isPC ? `<span style="
+        font-size: 10px;
+        background: #6b5a6b;
+        color: #fff;
+        padding: 1px 6px;
+        border-radius: 3px;
+        margin-left: 4px;
+      ">PC</span>` : "";
+      checkboxHtml += `
+        <label style="
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 4px 8px 4px 24px;
+          border-radius: 4px;
+          cursor: pointer;
+          transition: background 0.15s;
+        " onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+          onmouseout="this.style.background='transparent'">
+          <input type="checkbox" name="knights" value="${k.id}"
+            style="width: 16px; height: 16px; cursor: pointer;" />
+          <img src="${img}" alt="${k.name}"
+            style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid #555; object-fit: cover;" />
+          <span style="font-size: 14px;">${k.name}${pcBadge}</span>
+        </label>`;
+    }
+    checkboxHtml += `</div>`;
+  }
 
   const content = `
     <style>
@@ -81,7 +218,7 @@
       <a id="age-select-none">Select None</a>
     </div>
     <div class="age-passes-list">
-      ${checkboxes}
+      ${checkboxHtml}
     </div>
   `;
 
@@ -120,9 +257,7 @@
   // Cancel or closed
   if (!result || result === "cancel") return;
 
-  // result is the array of selected actor IDs
   const selectedKnights = result.map(id => game.actors.get(id)).filter(Boolean);
-
   if (!selectedKnights.length) {
     ui.notifications.info("No Knights were selected.");
     return;
@@ -132,7 +267,6 @@
   const VIRTUES = ["vigour", "clarity", "spirit"];
 
   // --- Pre-step: Restore all Virtues to max ---
-  // Before any aging occurs, set each selected knight's Virtue values equal to their max.
   for (const knight of selectedKnights) {
     const v = knight.system.virtues;
     const restoreData = {};
@@ -152,42 +286,33 @@
     await knight.update({ "system.glory.value": currentGlory + 1 });
   }
 
-  // --- Age Progression ---
-  // Age advances one step: young → mature → old. Old does not change.
-
-  // Build an array of result objects tracking each knight's transition.
-  // Shape: {
-  //   actor, previousAge, newAge, aged,
-  //   virtueChanges: { vigour: {old, rolled, new}, clarity: {...}, spirit: {...} },
-  //   vigourLoss: { old, rolled, new } | null,   // only for already-old knights
-  //   diedOfOldAge: boolean
-  // }
+  // --- Age Progression + Virtue Re-rolls ---
   const ageResults = [];
 
   for (const knight of selectedKnights) {
     const previousAge = knight.system.age ?? "young";
     const currentIndex = AGE_ORDER.indexOf(previousAge);
-
     const isAlreadyOld = currentIndex >= AGE_ORDER.length - 1;
     const newAge = isAlreadyOld ? previousAge : AGE_ORDER[currentIndex + 1];
+    const isPC = playerCharacterIds.has(knight.id);
 
     const entry = {
       actor: knight,
       previousAge,
       newAge,
       aged: !isAlreadyOld,
+      isPC,
       virtueChanges: {},
       vigourLoss: null,
-      diedOfOldAge: false
+      diedOfOldAge: false,
+      betweenAgesEvent: null,  // { d66, text } — PC only
+      howDied: null             // { d66, text } — died of old age only
     };
 
     const updateData = {};
 
     if (!isAlreadyOld) {
-      // --- Young → Mature or Mature → Old: Virtue re-rolls ---
-      // Roll 1d12+1d6 for each Virtue.
-      //   Young → Mature: keep the roll if HIGHER than current.
-      //   Mature → Old:   keep the roll if LOWER than current.
+      // Virtue re-rolls: 1d12+1d6 per Virtue
       const keepHigher = (previousAge === "young");
 
       for (const virtue of VIRTUES) {
@@ -202,11 +327,7 @@
           newVal = rolled < currentVal ? rolled : currentVal;
         }
 
-        entry.virtueChanges[virtue] = {
-          old: currentVal,
-          rolled,
-          new: newVal
-        };
+        entry.virtueChanges[virtue] = { old: currentVal, rolled, new: newVal };
 
         if (newVal !== currentVal) {
           updateData[`system.virtues.${virtue}.value`] = newVal;
@@ -214,12 +335,10 @@
         }
       }
 
-      // Update the age
       updateData["system.age"] = newAge;
 
     } else {
-      // --- Already Old: Vigour reduction ---
-      // Lose 1d12 from both max and current Vigour. Clamp to 0.
+      // Already Old: lose 1d12 from Vigour
       const currentVal = knight.system.virtues.vigour.value;
       const currentMax = knight.system.virtues.vigour.max;
       const roll = await new Roll("1d12").evaluate();
@@ -228,11 +347,7 @@
       const newVal = Math.max(0, currentVal - rolled);
       const newMax = Math.max(0, currentMax - rolled);
 
-      entry.vigourLoss = {
-        old: currentVal,
-        rolled,
-        new: newVal
-      };
+      entry.vigourLoss = { old: currentVal, rolled, new: newVal };
 
       if (newVal <= 0) {
         entry.diedOfOldAge = true;
@@ -242,7 +357,6 @@
       updateData["system.virtues.vigour.max"] = newMax;
     }
 
-    // Apply all updates in a single call
     if (Object.keys(updateData).length) {
       await knight.update(updateData);
     }
@@ -250,15 +364,29 @@
     ageResults.push(entry);
   }
 
+  // --- d66 Rolls ---
+  // Between Ages: for each PC knight
+  for (const r of ageResults) {
+    if (!r.isPC) continue;
+    const d66 = await rollD66();
+    r.betweenAgesEvent = {
+      d66: d66.total,
+      text: BETWEEN_AGES[d66.total] ?? "Nothing of note occurs."
+    };
+  }
+
+  // How Did They Die: for each knight that died of old age (PC or NPC)
+  for (const r of ageResults) {
+    if (!r.diedOfOldAge) continue;
+    const d66 = await rollD66();
+    r.howDied = {
+      d66: d66.total,
+      text: HOW_DIED[d66.total] ?? "They passed quietly, unremarked."
+    };
+  }
+
   // --- Build Chat Card ---
-  // Matches the Mythic Bastionland system's chat card styling:
-  // bordered card, dark header bar, light content area.
-
-  // Helper: capitalize first letter
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
-
-  // Helper: format knight name with title
-  // system.knight holds the knight's title, e.g. "the Riddle Knight"
   const knightLabel = (actor) => {
     const title = actor.system.knight?.trim();
     return title ? `${actor.name}, ${title},` : `${actor.name}`;
@@ -266,31 +394,49 @@
 
   let cardEntries = "";
 
-  for (const r of ageResults) {
+  // --- PC knights: full output ---
+  const pcResults = ageResults.filter(r => r.isPC);
+  for (const r of pcResults) {
     if (r.aged) {
-      // Knight who aged: "{Name}, {Known as the}, grew {newAge}."
       let entry = `<p><strong>${knightLabel(r.actor)}</strong> grew ${r.newAge}.</p>`;
-
-      // Bullet list of Virtues that changed
       const changedVirtues = VIRTUES.filter(v => r.virtueChanges[v]?.new !== r.virtueChanges[v]?.old);
       if (changedVirtues.length) {
-        entry += `<ul style="list-style: disc; padding-left: 1.5em; margin: 0.25em 0 0.75em;">`;
+        entry += `<ul style="list-style: disc; padding-left: 1.5em; margin: 0.25em 0 0.5em;">`;
         for (const v of changedVirtues) {
           entry += `<li>${cap(v)} is now ${r.virtueChanges[v].new}.</li>`;
         }
         entry += `</ul>`;
       }
-
       cardEntries += entry;
 
     } else if (r.diedOfOldAge) {
-      // Knight who died of old age
-      cardEntries += `<p><strong>${knightLabel(r.actor)}</strong> died peacefully of old age.</p>`;
+      cardEntries += `<p><strong>${knightLabel(r.actor)}</strong> died of old age.</p>`;
+      if (r.howDied) {
+        cardEntries += `<p style="margin-left: 0.75em; font-style: italic;">${r.howDied.text}</p>`;
+      }
 
     } else {
-      // Already old, survived: diminished by age
       const newMax = r.vigourLoss?.new ?? r.actor.system.virtues.vigour.max;
       cardEntries += `<p><strong>${knightLabel(r.actor)}</strong> is diminished by age. Vigour is now ${newMax}.</p>`;
+    }
+
+    // Between Ages event for this PC
+    if (r.betweenAgesEvent) {
+      cardEntries += `<p style="margin-left: 0.75em;"><strong>Between Ages (${r.betweenAgesEvent.d66}):</strong> <em>${r.betweenAgesEvent.text}</em></p>`;
+    }
+  }
+
+  // --- NPC knights: only those who died ---
+  const npcDead = ageResults.filter(r => !r.isPC && r.diedOfOldAge);
+  if (npcDead.length) {
+    if (pcResults.length) {
+      cardEntries += `<hr style="border: none; border-top: 1px solid #c0b8a8; margin: 0.75em 0;">`;
+    }
+    for (const r of npcDead) {
+      cardEntries += `<p><strong>${knightLabel(r.actor)}</strong> died of old age.</p>`;
+      if (r.howDied) {
+        cardEntries += `<p style="margin-left: 0.75em; font-style: italic;">${r.howDied.text}</p>`;
+      }
     }
   }
 
@@ -337,6 +483,6 @@
     await r.actor.update({ folder: deceasedFolder.id });
   }
 
-  // Log the full results for downstream logic
+  // Log results
   console.log("An Age Passes — Results:", ageResults);
 })();
